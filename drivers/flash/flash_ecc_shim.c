@@ -4,13 +4,14 @@
  * Wraps a parent NOR flash device, providing transparent CRC-32 based
  * error detection and correction at the page level.
  *
- * Physical page layout (256 bytes):
- *   [byte 0..251]   252 bytes data payload
- *   [byte 252..255] CRC-32, little-endian
+ * Physical page layout (default: 256 bytes):
+ *   [byte 0..N-1]   N bytes data payload  (DT data-size, default 252)
+ *   [byte N..N+3]   CRC-32, little-endian (ECC_CRC_SIZE = 4)
  *
- * Virtual geometry presented to upper layers:
- *   write_block_size = 252 bytes
- *   Virtual sector   = 4032 bytes (16 pages), maps to 4096-byte physical sector
+ * Virtual geometry presented to upper layers (default values):
+ *   write_block_size = 252 bytes  (data-size)
+ *   Virtual sector   = 4032 bytes (data-size × pages-per-sector)
+ *   maps to 4096-byte physical sector (page-size × pages-per-sector)
  *
  * Copyright (c) Vaisala Oyj.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -28,42 +29,38 @@ LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 
 #define DT_DRV_COMPAT vaisala_ecc_flash_shim
 
-#define ECC_DATA_SIZE        252U
-#define ECC_CRC_SIZE         4U
-#define ECC_PAGE_SIZE        (ECC_DATA_SIZE + ECC_CRC_SIZE) /* 256 */
-#define ECC_PAGES_PER_SECTOR 16U
-#define ECC_VIRT_SECTOR      (ECC_DATA_SIZE * ECC_PAGES_PER_SECTOR) /* 4032 */
-#define ECC_PHYS_SECTOR      (ECC_PAGE_SIZE * ECC_PAGES_PER_SECTOR) /* 4096 */
-
 struct ecc_shim_data {
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	struct flash_pages_layout layout;
 #endif
 };
 
-static inline off_t virt_to_phys(off_t virt_off)
+static inline off_t virt_to_phys(const struct ecc_shim_config *cfg, off_t virt_off)
 {
-	return (virt_off / ECC_DATA_SIZE) * ECC_PAGE_SIZE;
+	return (virt_off / cfg->data_size) * (cfg->data_size + ECC_CRC_SIZE);
 }
 
 static int ecc_shim_read(const struct device *dev, off_t virt_off,
 			 void *buf, size_t len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
-	uint8_t page[ECC_PAGE_SIZE];
+	const uint16_t data_size = cfg->data_size;
+	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+	const uint32_t phys_sector = (uint32_t)page_size * cfg->pages_per_sector;
+	uint8_t page[page_size];
 	uint8_t *dst = buf;
 	int ret;
 
-	if ((virt_off % ECC_DATA_SIZE) != 0 || (len % ECC_DATA_SIZE) != 0) {
+	if ((virt_off % data_size) != 0 || (len % data_size) != 0) {
 		LOG_ERR("unaligned read off=0x%lx len=%zu (must be multiples of %u)",
-			(unsigned long)virt_off, len, ECC_DATA_SIZE);
+			(unsigned long)virt_off, len, data_size);
 		return -EINVAL;
 	}
 
 	while (len > 0) {
-		off_t phys_off = virt_to_phys(virt_off);
+		off_t phys_off = virt_to_phys(cfg, virt_off);
 
-		ret = flash_read(cfg->parent, phys_off, page, ECC_PAGE_SIZE);
+		ret = flash_read(cfg->parent, phys_off, page, page_size);
 		if (ret != 0) {
 			return ret;
 		}
@@ -71,7 +68,7 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 		/* Erased page: all bytes 0xFF, return as-is without ECC check */
 		bool erased = true;
 
-		for (size_t i = 0; i < ECC_PAGE_SIZE; i++) {
+		for (size_t i = 0; i < page_size; i++) {
 			if (page[i] != 0xFF) {
 				erased = false;
 				break;
@@ -79,14 +76,14 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 		}
 
 		if (erased) {
-			memset(dst, 0xFF, ECC_DATA_SIZE);
+			memset(dst, 0xFF, data_size);
 		} else {
-			uint32_t stored_crc = sys_get_le32(&page[ECC_DATA_SIZE]);
-			int ecc = ecc_crc32_correct(page, ECC_DATA_SIZE, stored_crc);
+			uint32_t stored_crc = sys_get_le32(&page[data_size]);
+			int ecc = ecc_crc32_correct(page, data_size, stored_crc);
 
-			uint32_t block = (uint32_t)(phys_off / ECC_PHYS_SECTOR);
+			uint32_t block = (uint32_t)(phys_off / phys_sector);
 			uint32_t page_in_block =
-				(uint32_t)((phys_off % ECC_PHYS_SECTOR) / ECC_PAGE_SIZE);
+				(uint32_t)((phys_off % phys_sector) / page_size);
 
 			switch (ecc) {
 			case ECC_CRC32_OK:
@@ -110,12 +107,12 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 				return -EFAULT;
 			}
 
-			memcpy(dst, page, ECC_DATA_SIZE);
+			memcpy(dst, page, data_size);
 		}
 
-		dst += ECC_DATA_SIZE;
-		virt_off += ECC_DATA_SIZE;
-		len -= ECC_DATA_SIZE;
+		dst += data_size;
+		virt_off += data_size;
+		len -= data_size;
 	}
 
 	return 0;
@@ -125,31 +122,33 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 			  const void *buf, size_t len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
-	uint8_t page[ECC_PAGE_SIZE];
+	const uint16_t data_size = cfg->data_size;
+	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+	uint8_t page[page_size];
 	const uint8_t *src = buf;
 	int ret;
 
-	if ((virt_off % ECC_DATA_SIZE) != 0 || (len % ECC_DATA_SIZE) != 0) {
+	if ((virt_off % data_size) != 0 || (len % data_size) != 0) {
 		LOG_ERR("unaligned write off=0x%lx len=%zu (must be multiples of %u)",
-			(unsigned long)virt_off, len, ECC_DATA_SIZE);
+			(unsigned long)virt_off, len, data_size);
 		return -EINVAL;
 	}
 
 	while (len > 0) {
-		off_t phys_off = virt_to_phys(virt_off);
+		off_t phys_off = virt_to_phys(cfg, virt_off);
 
-		memcpy(page, src, ECC_DATA_SIZE);
-		uint32_t crc = ecc_crc32_encode(page, ECC_DATA_SIZE);
-		sys_put_le32(crc, &page[ECC_DATA_SIZE]);
+		memcpy(page, src, data_size);
+		uint32_t crc = ecc_crc32_encode(page, data_size);
+		sys_put_le32(crc, &page[data_size]);
 
-		ret = flash_write(cfg->parent, phys_off, page, ECC_PAGE_SIZE);
+		ret = flash_write(cfg->parent, phys_off, page, page_size);
 		if (ret != 0) {
 			return ret;
 		}
 
-		src += ECC_DATA_SIZE;
-		virt_off += ECC_DATA_SIZE;
-		len -= ECC_DATA_SIZE;
+		src += data_size;
+		virt_off += data_size;
+		len -= data_size;
 	}
 
 	return 0;
@@ -158,30 +157,34 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 static int ecc_shim_erase(const struct device *dev, off_t virt_off, size_t virt_len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
-	off_t phys_off = (virt_off / ECC_VIRT_SECTOR) * ECC_PHYS_SECTOR;
-	size_t phys_len = (virt_len / ECC_VIRT_SECTOR) * ECC_PHYS_SECTOR;
+	const uint32_t virt_sector = (uint32_t)cfg->data_size * cfg->pages_per_sector;
+	const uint32_t phys_sector =
+		(uint32_t)(cfg->data_size + ECC_CRC_SIZE) * cfg->pages_per_sector;
+	const off_t phys_off = (virt_off / virt_sector) * phys_sector;
+	const size_t phys_len = (virt_len / virt_sector) * phys_sector;
 
 	return flash_erase(cfg->parent, phys_off, phys_len);
 }
 
-static const struct flash_parameters ecc_shim_params = {
-	.write_block_size = ECC_DATA_SIZE,
-	.erase_value = 0xFF,
-};
-
 static const struct flash_parameters *ecc_shim_get_parameters(const struct device *dev)
 {
-	ARG_UNUSED(dev);
-	return &ecc_shim_params;
+	const struct ecc_shim_config *cfg = dev->config;
+
+	return &cfg->flash_params;
 }
 
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 
+struct count_cb_data {
+	size_t count;
+	uint32_t phys_sector;
+};
+
 static bool count_phys_sectors_cb(const struct flash_pages_info *info, void *data)
 {
-	size_t *count = data;
+	struct count_cb_data *d = data;
 
-	*count += info->size / ECC_PHYS_SECTOR;
+	d->count += info->size / d->phys_sector;
 	return true;
 }
 
@@ -208,12 +211,15 @@ static int ecc_shim_init(const struct device *dev)
 
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	struct ecc_shim_data *data = dev->data;
-	size_t sector_count = 0;
+	struct count_cb_data cb = {
+		.count = 0,
+		.phys_sector = (uint32_t)(cfg->data_size + ECC_CRC_SIZE) * cfg->pages_per_sector,
+	};
 
-	flash_page_foreach(cfg->parent, count_phys_sectors_cb, &sector_count);
+	flash_page_foreach(cfg->parent, count_phys_sectors_cb, &cb);
 
-	data->layout.pages_size = ECC_VIRT_SECTOR;
-	data->layout.pages_count = sector_count;
+	data->layout.pages_size = (uint32_t)cfg->data_size * cfg->pages_per_sector;
+	data->layout.pages_count = cb.count;
 #endif
 
 	return 0;
@@ -234,6 +240,12 @@ static const struct flash_driver_api ecc_shim_api = {
                                                                                 \
 	static const struct ecc_shim_config ecc_shim_cfg_##inst = {             \
 		.parent = DEVICE_DT_GET(DT_INST_PHANDLE(inst, parent_flash)),   \
+		.data_size = DT_INST_PROP(inst, data_size),                     \
+		.pages_per_sector = DT_INST_PROP(inst, pages_per_sector),       \
+		.flash_params = {                                               \
+			.write_block_size = DT_INST_PROP(inst, data_size),      \
+			.erase_value = 0xFF,                                    \
+		},                                                              \
 	};                                                                      \
                                                                                 \
 	DEVICE_DT_INST_DEFINE(inst,                                             \

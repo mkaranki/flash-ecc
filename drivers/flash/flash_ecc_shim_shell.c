@@ -26,16 +26,8 @@
 
 LOG_MODULE_DECLARE(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 
-#define DATA_SIZE    252U  /* ECC_DATA_SIZE — one virtual page */
-#define PAGE_SIZE    256U  /* ECC_PAGE_SIZE — one physical page */
 #define NONCE_SIZE     8U  /* random bytes at start of pattern */
 #define FLIP_OFF       8U  /* offset of 0xAA byte to corrupt (past nonce) */
-/* LittleFS inlines files up to min(cache_size, attr_max) bytes.
- * With cache_size=252 and Zephyr's default attr_max=1022 that threshold is
- * 252.  A 252-byte file is stored inside the directory metadata commit blob
- * rather than in a data block, so a raw page scan cannot find it.
- * Writing DATA_SIZE+1 bytes forces allocation of a real data block. */
-#define WRITE_SIZE   (DATA_SIZE + 1U)
 
 /*
  * Write a test pattern into a file, find it in physical flash, and corrupt
@@ -49,65 +41,67 @@ static int cmd_ecc_inject(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *path = argv[1];
 
+	const struct flash_area *fa;
+	int rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
+
+	if (rc < 0) {
+		shell_error(sh, "flash_area_open failed: %d", rc);
+		return rc;
+	}
+
+	const struct ecc_shim_config *cfg = flash_area_get_device(fa)->config;
+	const uint16_t data_size = cfg->data_size;
+	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+
 	/* Build a unique write buffer: random 8-byte nonce, rest 0xAA.
-	 * Size is WRITE_SIZE (DATA_SIZE+1) to exceed the LittleFS inline
-	 * threshold so the data is stored in a dedicated flash block, not
-	 * embedded in directory metadata.
-	 * 0xAA = 10101010 — every bit available for a 1->0 NOR-flash flip. */
-	uint8_t wbuf[WRITE_SIZE];
+	 * Size is data_size+1 to exceed the LittleFS inline threshold so the
+	 * data is stored in a dedicated flash block, not embedded in directory
+	 * metadata. 0xAA = 10101010 — every bit available for a 1->0 NOR flip. */
+	uint8_t wbuf[data_size + 1];
+
 	memset(wbuf, 0xAA, sizeof(wbuf));
 	sys_put_le32(sys_rand32_get(), &wbuf[0]);
 	sys_put_le32(sys_rand32_get(), &wbuf[4]);
 
 	struct fs_file_t f;
+
 	fs_file_t_init(&f);
-	int rc = fs_open(&f, path, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC);
+	rc = fs_open(&f, path, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC);
 	if (rc < 0) {
 		shell_error(sh, "cannot open %s: %d", path, rc);
+		flash_area_close(fa);
 		return rc;
 	}
 	rc = fs_write(&f, wbuf, sizeof(wbuf));
 	fs_close(&f);
 	if (rc != (int)sizeof(wbuf)) {
 		shell_error(sh, "write failed: %d", rc);
+		flash_area_close(fa);
 		return rc < 0 ? rc : -EIO;
 	}
 
-	/* The scan searches for only the first DATA_SIZE bytes (nonce + 0xAA).
+	/* Scan the first data_size bytes of each page (nonce + 0xAA pattern).
 	 * The extra byte forces a data block; the scan still hits page boundaries
-	 * because block_size=4032 = 16*252 is always a multiple of DATA_SIZE. */
-	uint8_t pattern[DATA_SIZE];
-	memcpy(pattern, wbuf, DATA_SIZE);
+	 * because block_size = data_size * pages_per_sector is always a multiple
+	 * of data_size. */
+	uint8_t pattern[data_size];
 
-	/* Scan the storage partition via the ECC layer, looking for our nonce.
-	 * flash_area_read goes through the ECC shim so any pre-existing
-	 * correctable errors on other pages would also be reported here. */
-	const struct flash_area *fa;
-	rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
-	if (rc < 0) {
-		shell_error(sh, "flash_area_open failed: %d", rc);
-		return rc;
-	}
+	memcpy(pattern, wbuf, data_size);
 
 	/* Scan physical pages directly on the parent NOR flash, bypassing the
 	 * ECC shim.  Reading through the shim would trigger CRC checks and log
-	 * error messages for every page whose stored CRC doesn't match (e.g.
-	 * pages written before a CRC-algorithm change, or freed-but-not-erased
-	 * blocks).  The scan only needs raw bytes; correctness of the CRC is
-	 * irrelevant here. */
-	const struct ecc_shim_config *cfg = flash_area_get_device(fa)->config;
-
-	uint8_t raw_page[PAGE_SIZE];
+	 * error messages for every page whose stored CRC doesn't match. */
+	uint8_t raw_page[page_size];
 	off_t found_off = -1;
 
-	for (off_t off = 0; off < (off_t)fa->fa_size; off += DATA_SIZE) {
-		off_t phys_scan = ((fa->fa_off + off) / DATA_SIZE) * PAGE_SIZE;
+	for (off_t off = 0; off < (off_t)fa->fa_size; off += data_size) {
+		off_t phys_scan = ((fa->fa_off + off) / data_size) * page_size;
 
-		rc = flash_read(cfg->parent, phys_scan, raw_page, PAGE_SIZE);
+		rc = flash_read(cfg->parent, phys_scan, raw_page, page_size);
 		if (rc < 0) {
 			continue;
 		}
-		if (memcmp(raw_page, pattern, DATA_SIZE) == 0) {
+		if (memcmp(raw_page, pattern, data_size) == 0) {
 			found_off = off;
 			break;
 		}
@@ -120,16 +114,16 @@ static int cmd_ecc_inject(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	/* Virtual address on the ECC device (partition-relative -> absolute). */
-	off_t virt = fa->fa_off + found_off;
+	const off_t virt = fa->fa_off + found_off;
 	/* Physical address on the parent NOR flash. */
-	off_t phys = (virt / DATA_SIZE) * PAGE_SIZE;
+	const off_t phys = (virt / data_size) * page_size;
 
 	shell_print(sh, "found: partition+0x%05lx  virt=0x%06lx  phys=0x%07lx",
 		    (long)found_off, (long)virt, (long)phys);
 
 	/* Flip bit 1 of the 0xAA byte at FLIP_OFF: 0xAA (10101010) -> 0xA8 (10101000).
 	 * NOR flash only supports 1->0 transitions without erasing. */
-	uint8_t corrupt = pattern[FLIP_OFF] & ~BIT(1);
+	const uint8_t corrupt = pattern[FLIP_OFF] & ~BIT(1);
 
 	rc = flash_write(cfg->parent, phys + FLIP_OFF, &corrupt, 1);
 	flash_area_close(fa);
@@ -155,15 +149,30 @@ static int cmd_ecc_verify(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *path = argv[1];
 
+	const struct flash_area *fa;
+	int rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
+
+	if (rc < 0) {
+		shell_error(sh, "flash_area_open failed: %d", rc);
+		return rc;
+	}
+
+	const struct ecc_shim_config *cfg = flash_area_get_device(fa)->config;
+	const uint16_t data_size = cfg->data_size;
+
+	flash_area_close(fa);
+
 	struct fs_file_t f;
+
 	fs_file_t_init(&f);
-	int rc = fs_open(&f, path, FS_O_READ);
+	rc = fs_open(&f, path, FS_O_READ);
 	if (rc < 0) {
 		shell_error(sh, "cannot open %s: %d", path, rc);
 		return rc;
 	}
 
-	uint8_t buf[WRITE_SIZE];
+	uint8_t buf[data_size + 1];
+
 	rc = fs_read(&f, buf, sizeof(buf));
 	fs_close(&f);
 	if (rc < 0) {
@@ -173,6 +182,7 @@ static int cmd_ecc_verify(const struct shell *sh, size_t argc, char **argv)
 
 	/* Bytes past the nonce must all be 0xAA (the extra byte is also 0xAA). */
 	bool ok = true;
+
 	for (size_t i = NONCE_SIZE; i < sizeof(buf); i++) {
 		if (buf[i] != 0xAA) {
 			ok = false;

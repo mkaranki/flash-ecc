@@ -5,12 +5,12 @@ description: |
   Vaisala ECC flash shim driver.
 
   Wraps a parent NOR flash device to provide transparent CRC-32 based
-  error detection and correction at the page level. Each 256-byte physical
-  page is split into 252 bytes of data payload and 4 bytes of CRC-32.
+  error detection and correction at the page level.
 
-  The virtual write_block_size presented to upper layers is 252 bytes.
-  Each virtual 4032-byte sector (16 x 252) maps to one physical 4096-byte
-  erase sector (16 x 256).
+  Each physical page stores a data payload followed by a 4-byte CRC-32.
+  The default geometry (data-size=252, pages-per-sector=16) targets standard
+  256-byte/4096-byte NOR flash: 252 bytes data + 4 bytes CRC per page,
+  16 pages per erase sector.
 
 compatible: "vaisala,ecc-flash-shim"
 
@@ -19,3 +19,18 @@ properties:
     type: phandle
     required: true
     description: Parent flash device to wrap with ECC.
+
+  data-size:
+    type: int
+    default: 252
+    description: |
+      Data payload bytes per physical page. The physical page size is
+      data-size + 4 (CRC-32 overhead). Default 252 matches standard
+      256-byte NOR flash pages.
+
+  pages-per-sector:
+    type: int
+    default: 16
+    description: |
+      Number of physical pages per erase sector. Default 16 matches
+      standard 4096-byte NOR flash sectors with 256-byte pages.
