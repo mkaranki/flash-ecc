@@ -1,0 +1,8 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
+tests:
+  ecc_crc32.unit:
+    integration_platforms:
+      - native_sim
+    platform_allow: native_sim

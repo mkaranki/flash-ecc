@@ -1,0 +1,17 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
+manifest:
+  self:
+    path: flash-ecc
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.3.1
+      import:
+        name-allowlist: []  # native_sim uses host compiler, no HAL modules needed
