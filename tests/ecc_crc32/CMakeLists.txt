@@ -1,3 +1,6 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
 cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(test_ecc_crc32)

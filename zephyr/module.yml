@@ -1,3 +1,6 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
 name: flash-ecc
 build:
   cmake: .

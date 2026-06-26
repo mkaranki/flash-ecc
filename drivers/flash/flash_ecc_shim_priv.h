@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Vaisala Oyj.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 /* Internal types shared between flash_ecc_shim.c and flash_ecc_shim_shell.c */
 #ifndef FLASH_ECC_SHIM_PRIV_H_
 #define FLASH_ECC_SHIM_PRIV_H_

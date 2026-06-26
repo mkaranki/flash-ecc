@@ -1,3 +1,6 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
 config ECC_CRC32
 	bool "CRC-32 based ECC library"
 	select CRC

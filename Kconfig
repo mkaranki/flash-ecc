@@ -1,2 +1,5 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
 rsource "lib/ecc_crc32/Kconfig"
 rsource "drivers/flash/Kconfig"

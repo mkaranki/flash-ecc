@@ -1,3 +1,6 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
 config FLASH_ECC_SHIM
 	bool "ECC flash shim driver"
 	depends on FLASH
