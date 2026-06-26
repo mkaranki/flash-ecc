@@ -1,0 +1,39 @@
+config FLASH_ECC_SHIM
+	bool "ECC flash shim driver"
+	depends on FLASH
+	select ECC_CRC32
+	select FLASH_PAGE_LAYOUT
+	help
+	  Enables the ECC flash shim driver. Wraps a parent flash device and
+	  adds transparent CRC-32 based error detection and correction per
+	  physical page (252 bytes data + 4 bytes CRC-32 = 256 bytes).
+
+	  Presents write_block_size=252 to upper layers. Each virtual 4032-byte
+	  sector maps to one physical 4096-byte erase sector.
+
+if FLASH_ECC_SHIM
+
+config FLASH_ECC_SHIM_LOG_LEVEL
+	int "ECC flash shim log level"
+	default 3
+	range 0 4
+	help
+	  Log level for the ECC flash shim driver.
+	  0=OFF 1=ERR 2=WRN 3=INF 4=DBG
+
+config FLASH_ECC_SHIM_SHELL
+	bool "ECC flash shim shell test commands"
+	depends on SHELL
+	help
+	  Adds the 'ecc_test' shell command group for hardware validation.
+
+	  ecc_test inject <path>  — write a test file, locate it in physical
+	  flash, inject a 1-bit error, and leave the file intact.
+
+	  ecc_test verify <path>  — read the file back through LittleFS and
+	  confirm the data is intact (run after reboot following inject).
+
+	  Requires a 'storage_partition' fixed-partition node in the device tree
+	  (the ECC-backed LittleFS partition).
+
+endif # FLASH_ECC_SHIM

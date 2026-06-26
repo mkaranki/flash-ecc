@@ -1,0 +1,2 @@
+rsource "lib/ecc_crc32/Kconfig"
+rsource "drivers/flash/Kconfig"

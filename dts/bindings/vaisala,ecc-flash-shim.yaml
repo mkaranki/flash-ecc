@@ -1,0 +1,21 @@
+# Copyright (c) Vaisala Oyj.
+# SPDX-License-Identifier: BSD-3-Clause
+
+description: |
+  Vaisala ECC flash shim driver.
+
+  Wraps a parent NOR flash device to provide transparent CRC-32 based
+  error detection and correction at the page level. Each 256-byte physical
+  page is split into 252 bytes of data payload and 4 bytes of CRC-32.
+
+  The virtual write_block_size presented to upper layers is 252 bytes.
+  Each virtual 4032-byte sector (16 x 252) maps to one physical 4096-byte
+  erase sector (16 x 256).
+
+compatible: "vaisala,ecc-flash-shim"
+
+properties:
+  parent-flash:
+    type: phandle
+    required: true
+    description: Parent flash device to wrap with ECC.

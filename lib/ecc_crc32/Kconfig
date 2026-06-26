@@ -1,0 +1,32 @@
+config ECC_CRC32
+	bool "CRC-32 based ECC library"
+	select CRC
+	help
+	  Enables the CRC-32 based error detection and correction library.
+	  Provides 1-bit correction and optional 2-bit correction for data
+	  buffers using CRC-32 (polynomial 0x04C11DB7, reflected).
+
+	  For 2-bit correction the codeword (data + 4-byte CRC) must not
+	  exceed 371 bytes.
+
+if ECC_CRC32
+
+config ECC_CRC32_2BIT_CORRECTION
+	bool "Enable 2-bit error correction"
+	default n
+	help
+	  Enables O(n²) brute-force 2-bit error correction in addition to
+	  1-bit correction.
+
+	  WARNING: on a Cortex-M33 at 160 MHz this takes ~250 ms per
+	  uncorrectable page (codeword_bits = 2048, inner loop = 4M
+	  iterations).  Any bulk read that hits multiple uncorrectable pages
+	  will stall for minutes and may starve cooperative threads or
+	  trigger a watchdog reset.
+
+	  Leave disabled unless the application explicitly needs 2-bit
+	  correction and can tolerate the latency.  With this disabled,
+	  pages with 2-bit (or higher) errors are still correctly detected
+	  and reported as UNCORRECTABLE; only correction is skipped.
+
+endif # ECC_CRC32
