@@ -23,9 +23,9 @@ CRC-32. The payload size is configurable via the `data-size` DT property
 
 ```
 ┌─────────────────────────────────────────────────┬─────────────────┐
-│           data-size bytes data (default 252)     │  4 bytes CRC-32 │
+│           data-size bytes data (default 252)    │  4 bytes CRC-32 │
 └─────────────────────────────────────────────────┴─────────────────┘
- byte 0                                        251  252          255
+ byte 0                                        251 252            255
 ```
 
 Per physical erase sector (`pages-per-sector` pages, default 16):
@@ -73,6 +73,24 @@ All ECC encoding and decoding is transparent. Corrected errors are logged:
 - Uncorrectable error: `LOG_ERR`, returns `-EFAULT`
 
 Erased pages (all `0xFF`) are returned as-is without an ECC check.
+
+### Memory footprint
+
+Each enabled driver instance owns one static scratch buffer of
+`data_size + ECC_CRC_SIZE` bytes (256 bytes for the default `data-size = 252`).
+The buffer is allocated in `.bss` alongside the `ecc_shim_data` struct; no
+heap is used.
+
+The buffer cannot be eliminated because the physical and virtual page layouts
+are incompatible:
+
+- **Read**: the physical page is `[data | CRC]`; the CRC must be verified
+  before the data bytes reach the caller, requiring a temporary holding area
+  for the full physical page.
+- **Write**: the caller's buffer is `const` and sized to `data_size` only —
+  there is no room to append the CRC in place.
+
+Read and write paths therefore add no dynamic stack usage for the page data.
 
 ### LittleFS configuration
 
