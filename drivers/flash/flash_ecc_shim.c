@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <ecc_crc32.h>
+#include <flash_ecc_shim.h>
 #include "flash_ecc_shim_priv.h"
 
 LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
@@ -224,6 +225,17 @@ static const struct flash_driver_api ecc_shim_api = {
 	.get_parameters = ecc_shim_get_parameters,
 	.page_layout = ecc_shim_page_layout,
 };
+
+const struct device *ecc_shim_flash_get_parent(const struct device *dev)
+{
+	if (dev != NULL && dev->api == &ecc_shim_api) {
+		const struct ecc_shim_config *cfg = dev->config;
+
+		return cfg->parent;
+	}
+
+	return dev;
+}
 
 #define ECC_SHIM_DEFINE(inst)                                                          \
 	static uint8_t ecc_page_buf_##inst[DT_INST_PROP(inst, data_size) + ECC_CRC_SIZE]; \
