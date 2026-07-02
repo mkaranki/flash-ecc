@@ -31,12 +31,6 @@ LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
-struct ecc_shim_data {
-#if defined(CONFIG_FLASH_PAGE_LAYOUT)
-	struct flash_pages_layout layout;
-#endif
-};
-
 static inline off_t virt_to_phys(const struct ecc_shim_config *cfg, off_t virt_off)
 {
 	return (virt_off / cfg->data_size) * (cfg->data_size + ECC_CRC_SIZE);
@@ -46,10 +40,11 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 			 void *buf, size_t len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
+	struct ecc_shim_data *data = dev->data;
 	const uint16_t data_size = cfg->data_size;
 	const uint16_t page_size = data_size + ECC_CRC_SIZE;
 	const uint32_t phys_sector = (uint32_t)page_size * cfg->pages_per_sector;
-	uint8_t page[page_size];
+	uint8_t *page = data->page_buf;
 	uint8_t *dst = buf;
 	int ret;
 
@@ -124,9 +119,10 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 			  const void *buf, size_t len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
+	struct ecc_shim_data *data = dev->data;
 	const uint16_t data_size = cfg->data_size;
 	const uint16_t page_size = data_size + ECC_CRC_SIZE;
-	uint8_t page[page_size];
+	uint8_t *page = data->page_buf;
 	const uint8_t *src = buf;
 	int ret;
 
@@ -175,8 +171,6 @@ static const struct flash_parameters *ecc_shim_get_parameters(const struct devic
 	return &cfg->flash_params;
 }
 
-#if defined(CONFIG_FLASH_PAGE_LAYOUT)
-
 struct count_cb_data {
 	size_t count;
 	uint32_t phys_sector;
@@ -200,19 +194,16 @@ static void ecc_shim_page_layout(const struct device *dev,
 	*layout_size = 1;
 }
 
-#endif /* CONFIG_FLASH_PAGE_LAYOUT */
-
 static int ecc_shim_init(const struct device *dev)
 {
 	const struct ecc_shim_config *cfg = dev->config;
+	struct ecc_shim_data *data = dev->data;
 
 	if (!device_is_ready(cfg->parent)) {
 		LOG_ERR("Parent flash device not ready");
 		return -ENODEV;
 	}
 
-#if defined(CONFIG_FLASH_PAGE_LAYOUT)
-	struct ecc_shim_data *data = dev->data;
 	struct count_cb_data cb = {
 		.count = 0,
 		.phys_sector = (uint32_t)(cfg->data_size + ECC_CRC_SIZE) * cfg->pages_per_sector,
@@ -222,7 +213,6 @@ static int ecc_shim_init(const struct device *dev)
 
 	data->layout.pages_size = (uint32_t)cfg->data_size * cfg->pages_per_sector;
 	data->layout.pages_count = cb.count;
-#endif
 
 	return 0;
 }
@@ -232,15 +222,16 @@ static const struct flash_driver_api ecc_shim_api = {
 	.write = ecc_shim_write,
 	.erase = ecc_shim_erase,
 	.get_parameters = ecc_shim_get_parameters,
-#if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	.page_layout = ecc_shim_page_layout,
-#endif
 };
 
-#define ECC_SHIM_DEFINE(inst)                                                   \
-	static struct ecc_shim_data ecc_shim_data_##inst;                       \
-                                                                                \
-	static const struct ecc_shim_config ecc_shim_cfg_##inst = {             \
+#define ECC_SHIM_DEFINE(inst)                                                          \
+	static uint8_t ecc_page_buf_##inst[DT_INST_PROP(inst, data_size) + ECC_CRC_SIZE]; \
+	static struct ecc_shim_data ecc_shim_data_##inst = {                           \
+		.page_buf = ecc_page_buf_##inst,                                       \
+	};                                                                             \
+                                                                                       \
+	static const struct ecc_shim_config ecc_shim_cfg_##inst = {                   \
 		.parent = DEVICE_DT_GET(DT_INST_PHANDLE(inst, parent_flash)),   \
 		.data_size = DT_INST_PROP(inst, data_size),                     \
 		.pages_per_sector = DT_INST_PROP(inst, pages_per_sector),       \

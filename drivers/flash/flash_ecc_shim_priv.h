@@ -19,4 +19,12 @@ struct ecc_shim_config {
 	struct flash_parameters flash_params;
 };
 
+struct ecc_shim_data {
+	struct flash_pages_layout layout;
+	/* Scratch buffer for one physical page (data_size + ECC_CRC_SIZE bytes).
+	 * Kept in instance data rather than on the stack to reduce peak stack
+	 * depth on callers such as the storage migration path. */
+	uint8_t *page_buf;
+};
+
 #endif /* FLASH_ECC_SHIM_PRIV_H_ */
