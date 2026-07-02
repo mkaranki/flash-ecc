@@ -60,6 +60,18 @@ relation. The inner loop is pure XOR and shift — no CRC recomputation.
 
 ## Zephyr flash shim driver
 
+```mermaid
+flowchart TD
+    app["LittleFS / application\n(Zephyr flash API consumer)"]
+    shim["vaisala,ecc-flash-shim\nvirtual flash device\n─────────────────────────\nwrite: append CRC-32 to each page\nread: verify and correct CRC-32"]
+    parent["parent NOR flash driver\n(e.g. IS25LP512M OSPI)"]
+
+    app -->|"data_size-aligned\nvirtual addresses"| shim
+    shim -->|"page_size-aligned\nphysical addresses"| parent
+
+    style shim fill:#ddeeff,stroke:#336699,stroke-width:2px
+```
+
 The shim driver (`vaisala,ecc-flash-shim`) wraps a parent flash device and
 presents a virtual flash device to upper layers with:
 
