@@ -29,6 +29,8 @@ LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 
 #define DT_DRV_COMPAT vaisala_ecc_flash_shim
 
+#if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+
 struct ecc_shim_data {
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	struct flash_pages_layout layout;
@@ -258,3 +260,5 @@ static const struct flash_driver_api ecc_shim_api = {
 			      &ecc_shim_api);
 
 DT_INST_FOREACH_STATUS_OKAY(ECC_SHIM_DEFINE)
+
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */
