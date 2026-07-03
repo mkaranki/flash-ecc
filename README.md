@@ -89,7 +89,7 @@ Erased pages (all `0xFF`) are returned as-is without an ECC check.
 ### Memory footprint
 
 Each enabled driver instance owns one static scratch buffer of
-`data_size + ECC_CRC_SIZE` bytes (256 bytes for the default `data-size = 252`).
+`data_size + ECC_SHIM_CRC_SIZE` bytes (256 bytes for the default `data-size = 252`).
 The buffer is allocated in `.bss` alongside the `ecc_shim_data` struct; no
 heap is used.
 

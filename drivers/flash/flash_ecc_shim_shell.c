@@ -51,7 +51,7 @@ static int cmd_ecc_inject(const struct shell *sh, size_t argc, char **argv)
 
 	const struct ecc_shim_config *cfg = flash_area_get_device(fa)->config;
 	const uint16_t data_size = cfg->data_size;
-	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+	const uint16_t page_size = data_size + ECC_SHIM_CRC_SIZE;
 
 	/* Build a unique write buffer: random 8-byte nonce, rest 0xAA.
 	 * Size is data_size+1 to exceed the LittleFS inline threshold so the

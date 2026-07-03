@@ -10,6 +10,9 @@
 
 #include <zephyr/device.h>
 
+/** CRC-32 bytes appended to every physical NOR page by the ECC shim. */
+#define ECC_SHIM_CRC_SIZE 4U
+
 /**
  * @brief Resolve the physical flash device backing an ECC shim device.
  *

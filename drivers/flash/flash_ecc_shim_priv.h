@@ -8,9 +8,7 @@
 #define FLASH_ECC_SHIM_PRIV_H_
 
 #include <zephyr/drivers/flash.h>
-
-/* CRC-32 appended to every physical page (4-byte IEEE CRC-32). */
-#define ECC_CRC_SIZE 4U
+#include <flash_ecc_shim.h> /* ECC_SHIM_CRC_SIZE */
 
 struct ecc_shim_config {
 	const struct device *parent;
@@ -21,7 +19,7 @@ struct ecc_shim_config {
 
 struct ecc_shim_data {
 	struct flash_pages_layout layout;
-	/* Scratch buffer for one physical page (data_size + ECC_CRC_SIZE bytes).
+	/* Scratch buffer for one physical page (data_size + ECC_SHIM_CRC_SIZE bytes).
 	 * Kept in instance data rather than on the stack to reduce peak stack
 	 * depth on callers such as the storage migration path. */
 	uint8_t *page_buf;

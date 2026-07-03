@@ -6,7 +6,7 @@
  *
  * Physical page layout (default: 256 bytes):
  *   [byte 0..N-1]   N bytes data payload  (DT data-size, default 252)
- *   [byte N..N+3]   CRC-32, little-endian (ECC_CRC_SIZE = 4)
+ *   [byte N..N+3]   CRC-32, little-endian (ECC_SHIM_CRC_SIZE = 4)
  *
  * Virtual geometry presented to upper layers (default values):
  *   write_block_size = 252 bytes  (data-size)
@@ -34,7 +34,7 @@ LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 
 static inline off_t virt_to_phys(const struct ecc_shim_config *cfg, off_t virt_off)
 {
-	return (virt_off / cfg->data_size) * (cfg->data_size + ECC_CRC_SIZE);
+	return (virt_off / cfg->data_size) * (cfg->data_size + ECC_SHIM_CRC_SIZE);
 }
 
 static int ecc_shim_read(const struct device *dev, off_t virt_off,
@@ -43,7 +43,7 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 	const struct ecc_shim_config *cfg = dev->config;
 	struct ecc_shim_data *data = dev->data;
 	const uint16_t data_size = cfg->data_size;
-	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+	const uint16_t page_size = data_size + ECC_SHIM_CRC_SIZE;
 	const uint32_t phys_sector = (uint32_t)page_size * cfg->pages_per_sector;
 	uint8_t *page = data->page_buf;
 	uint8_t *dst = buf;
@@ -122,7 +122,7 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 	const struct ecc_shim_config *cfg = dev->config;
 	struct ecc_shim_data *data = dev->data;
 	const uint16_t data_size = cfg->data_size;
-	const uint16_t page_size = data_size + ECC_CRC_SIZE;
+	const uint16_t page_size = data_size + ECC_SHIM_CRC_SIZE;
 	uint8_t *page = data->page_buf;
 	const uint8_t *src = buf;
 	int ret;
@@ -158,7 +158,7 @@ static int ecc_shim_erase(const struct device *dev, off_t virt_off, size_t virt_
 	const struct ecc_shim_config *cfg = dev->config;
 	const uint32_t virt_sector = (uint32_t)cfg->data_size * cfg->pages_per_sector;
 	const uint32_t phys_sector =
-		(uint32_t)(cfg->data_size + ECC_CRC_SIZE) * cfg->pages_per_sector;
+		(uint32_t)(cfg->data_size + ECC_SHIM_CRC_SIZE) * cfg->pages_per_sector;
 	const off_t phys_off = (virt_off / virt_sector) * phys_sector;
 	const size_t phys_len = (virt_len / virt_sector) * phys_sector;
 
@@ -207,7 +207,7 @@ static int ecc_shim_init(const struct device *dev)
 
 	struct count_cb_data cb = {
 		.count = 0,
-		.phys_sector = (uint32_t)(cfg->data_size + ECC_CRC_SIZE) * cfg->pages_per_sector,
+		.phys_sector = (uint32_t)(cfg->data_size + ECC_SHIM_CRC_SIZE) * cfg->pages_per_sector,
 	};
 
 	flash_page_foreach(cfg->parent, count_phys_sectors_cb, &cb);
@@ -238,7 +238,7 @@ const struct device *ecc_shim_flash_get_parent(const struct device *dev)
 }
 
 #define ECC_SHIM_DEFINE(inst)                                                          \
-	static uint8_t ecc_page_buf_##inst[DT_INST_PROP(inst, data_size) + ECC_CRC_SIZE]; \
+	static uint8_t ecc_page_buf_##inst[DT_INST_PROP(inst, data_size) + ECC_SHIM_CRC_SIZE]; \
 	static struct ecc_shim_data ecc_shim_data_##inst = {                           \
 		.page_buf = ecc_page_buf_##inst,                                       \
 	};                                                                             \
