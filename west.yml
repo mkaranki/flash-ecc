@@ -5,6 +5,15 @@ manifest:
   self:
     path: flash-ecc
 
+  # native_sim uses the host compiler, so it needs none of the vendor
+  # silicon HALs (hal_microchip, hal_ethos_u, hal_stm32, cmsis, ...) -
+  # they're all tagged "hal" in zephyr/west.yml. Excluded here via
+  # group-filter, not `import: name-allowlist: []` below: an *empty*
+  # name-allowlist is falsy in west's own filter check (any([[], [], [],
+  # []]) is False), so west treats it as "no filter" and imports
+  # everything anyway - the opposite of what it looks like it does.
+  group-filter: [-hal]
+
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
@@ -13,5 +22,4 @@ manifest:
     - name: zephyr
       remote: zephyrproject-rtos
       revision: v4.3.1
-      import:
-        name-allowlist: []  # native_sim uses host compiler, no HAL modules needed
+      import: true
