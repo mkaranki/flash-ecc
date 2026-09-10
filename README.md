@@ -104,6 +104,16 @@ are incompatible:
 
 Read and write paths therefore add no dynamic stack usage for the page data.
 
+Because the scratch buffer is shared per instance, `read`/`write`/`erase` all
+serialize on an internal `k_mutex` for the lifetime of the call. This matters
+whenever more than one caller can reach the *same* shim instance without
+otherwise being serialized against each other — e.g. two different LittleFS
+mounts layered on the same underlying shim device (a primary filesystem and a
+migration staging area), or any other direct caller of the flash API bypassing
+LittleFS. A single LittleFS mount already serializes its own callers with its
+own per-mount mutex, so the shim's lock is only ever contended across mounts
+or other direct callers, not within one.
+
 ### LittleFS configuration
 
 Configure LittleFS via a DT fstab node. `read-size` and `prog-size` must

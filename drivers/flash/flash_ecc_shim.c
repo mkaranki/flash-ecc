@@ -55,11 +55,14 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 		return -EINVAL;
 	}
 
+	k_mutex_lock(&data->lock, K_FOREVER);
+
 	while (len > 0) {
 		off_t phys_off = virt_to_phys(cfg, virt_off);
 
 		ret = flash_read(cfg->parent, phys_off, page, page_size);
 		if (ret != 0) {
+			k_mutex_unlock(&data->lock);
 			return ret;
 		}
 
@@ -102,6 +105,7 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 				 * -EIO would map to LFS_ERR_IO and abort operations
 				 * like format that deliberately read uninitialized
 				 * blocks to retrieve the old revision counter. */
+				k_mutex_unlock(&data->lock);
 				return -EFAULT;
 			}
 
@@ -113,6 +117,7 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 		len -= data_size;
 	}
 
+	k_mutex_unlock(&data->lock);
 	return 0;
 }
 
@@ -133,6 +138,8 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 		return -EINVAL;
 	}
 
+	k_mutex_lock(&data->lock, K_FOREVER);
+
 	while (len > 0) {
 		off_t phys_off = virt_to_phys(cfg, virt_off);
 
@@ -142,6 +149,7 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 
 		ret = flash_write(cfg->parent, phys_off, page, page_size);
 		if (ret != 0) {
+			k_mutex_unlock(&data->lock);
 			return ret;
 		}
 
@@ -150,19 +158,27 @@ static int ecc_shim_write(const struct device *dev, off_t virt_off,
 		len -= data_size;
 	}
 
+	k_mutex_unlock(&data->lock);
 	return 0;
 }
 
 static int ecc_shim_erase(const struct device *dev, off_t virt_off, size_t virt_len)
 {
 	const struct ecc_shim_config *cfg = dev->config;
+	struct ecc_shim_data *data = dev->data;
 	const uint32_t virt_sector = (uint32_t)cfg->data_size * cfg->pages_per_sector;
 	const uint32_t phys_sector =
 		(uint32_t)(cfg->data_size + ECC_SHIM_CRC_SIZE) * cfg->pages_per_sector;
 	const off_t phys_off = (virt_off / virt_sector) * phys_sector;
 	const size_t phys_len = (virt_len / virt_sector) * phys_sector;
 
-	return flash_erase(cfg->parent, phys_off, phys_len);
+	/* Doesn't touch page_buf, but still serialized against read/write so a
+	 * concurrent caller can never observe a page mid-erase. */
+	k_mutex_lock(&data->lock, K_FOREVER);
+	int ret = flash_erase(cfg->parent, phys_off, phys_len);
+	k_mutex_unlock(&data->lock);
+
+	return ret;
 }
 
 static const struct flash_parameters *ecc_shim_get_parameters(const struct device *dev)
@@ -204,6 +220,8 @@ static int ecc_shim_init(const struct device *dev)
 		LOG_ERR("Parent flash device not ready");
 		return -ENODEV;
 	}
+
+	k_mutex_init(&data->lock);
 
 	struct count_cb_data cb = {
 		.count = 0,
