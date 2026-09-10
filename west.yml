@@ -5,6 +5,15 @@ manifest:
   self:
     path: flash-ecc
 
+  # native_sim uses the host compiler, so it needs none of the vendor
+  # silicon HALs (hal_microchip, hal_ethos_u, hal_stm32, cmsis, ...) -
+  # they're all tagged "hal" in zephyr/west.yml. Excluded here via
+  # group-filter, not `import: name-allowlist: []` below: an *empty*
+  # name-allowlist is falsy in west's own filter check (any([[], [], [],
+  # []]) is False), so west treats it as "no filter" and imports
+  # everything anyway - the opposite of what it looks like it does.
+  group-filter: [-hal]
+
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
@@ -14,4 +23,11 @@ manifest:
       remote: zephyrproject-rtos
       revision: v4.3.1
       import:
-        name-allowlist: []  # native_sim uses host compiler, no HAL modules needed
+        # nrf_hw_models isn't tagged "hal" so group-filter above doesn't
+        # touch it, but it declares a build dependency on hal_nordic
+        # (excluded), which fails zephyr_module.py's dependency check
+        # for the whole active module set - not just what native_sim's
+        # build actually needs. Not needed here either way (nRF radio/HW
+        # simulation models, unrelated to this module's tests).
+        name-blocklist:
+          - nrf_hw_models
