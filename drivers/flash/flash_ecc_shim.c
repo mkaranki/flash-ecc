@@ -19,6 +19,7 @@
 
 #include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/stats/stats.h>
 #include <zephyr/sys/byteorder.h>
 #include <string.h>
 
@@ -31,6 +32,33 @@ LOG_MODULE_REGISTER(ecc_flash_shim, CONFIG_FLASH_ECC_SHIM_LOG_LEVEL);
 #define DT_DRV_COMPAT vaisala_ecc_flash_shim
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+
+/*
+ * Shared across every shim instance rather than per-instance: this board
+ * only ever has one, and CDF-3957's diag_files surfacing assumes a single
+ * "flash_ecc" group. Revisit if a board ever wires up more than one.
+ *
+ * bit2_corrected only exists when 2-bit correction itself is built in -
+ * with CONFIG_ECC_CRC32_2BIT_CORRECTION off, ecc_crc32_correct() never
+ * returns ECC_CRC32_CORRECTED_2BIT, so there is nothing to count.
+ */
+STATS_SECT_START(ecc_shim_stats)
+STATS_SECT_ENTRY(bit1_corrected)
+#if defined(CONFIG_ECC_CRC32_2BIT_CORRECTION)
+STATS_SECT_ENTRY(bit2_corrected)
+#endif /* CONFIG_ECC_CRC32_2BIT_CORRECTION */
+STATS_SECT_ENTRY(uncorrectable)
+STATS_SECT_END;
+
+STATS_NAME_START(ecc_shim_stats)
+STATS_NAME(ecc_shim_stats, bit1_corrected)
+#if defined(CONFIG_ECC_CRC32_2BIT_CORRECTION)
+STATS_NAME(ecc_shim_stats, bit2_corrected)
+#endif /* CONFIG_ECC_CRC32_2BIT_CORRECTION */
+STATS_NAME(ecc_shim_stats, uncorrectable)
+STATS_NAME_END(ecc_shim_stats);
+
+static STATS_SECT_DECL(ecc_shim_stats) ecc_shim_stats;
 
 static inline off_t virt_to_phys(const struct ecc_shim_config *cfg, off_t virt_off)
 {
@@ -90,14 +118,19 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 			case ECC_CRC32_OK:
 				break;
 			case ECC_CRC32_CORRECTED_1BIT:
+				STATS_INC(ecc_shim_stats, bit1_corrected);
 				LOG_WRN("1-bit error corrected at 0x%x (block %u page %u)",
 					(uint32_t)phys_off, block, page_in_block);
 				break;
 			case ECC_CRC32_CORRECTED_2BIT:
+#if defined(CONFIG_ECC_CRC32_2BIT_CORRECTION)
+				STATS_INC(ecc_shim_stats, bit2_corrected);
+#endif /* CONFIG_ECC_CRC32_2BIT_CORRECTION */
 				LOG_ERR("2-bit error corrected at 0x%x (block %u page %u)",
 					(uint32_t)phys_off, block, page_in_block);
 				break;
 			default: /* ECC_CRC32_UNCORRECTABLE */
+				STATS_INC(ecc_shim_stats, uncorrectable);
 				LOG_ERR("Uncorrectable error at 0x%x (block %u page %u)",
 					(uint32_t)phys_off, block, page_in_block);
 				/* -EFAULT maps to LFS_ERR_CORRUPT, which LittleFS
@@ -232,6 +265,8 @@ static int ecc_shim_init(const struct device *dev)
 
 	data->layout.pages_size = (uint32_t)cfg->data_size * cfg->pages_per_sector;
 	data->layout.pages_count = cb.count;
+
+	STATS_INIT_AND_REG(ecc_shim_stats, STATS_SIZE_32, "flash_ecc");
 
 	return 0;
 }

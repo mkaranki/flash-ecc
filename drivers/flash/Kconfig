@@ -6,6 +6,7 @@ config FLASH_ECC_SHIM
 	depends on FLASH
 	select ECC_CRC32
 	select FLASH_PAGE_LAYOUT
+	select STATS
 	help
 	  Enables the ECC flash shim driver. Wraps a parent flash device and
 	  adds transparent CRC-32 based error detection and correction per
