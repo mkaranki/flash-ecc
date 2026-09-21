@@ -1,0 +1,9 @@
+/ {
+    ecc_flash: ecc-flash-shim {
+        compatible = "vaisala,ecc-flash-shim";
+        parent-flash = <&flashcontroller0>;
+        data-size = <252>;
+        pages-per-sector = <16>;
+        status = "okay";
+    };
+};
