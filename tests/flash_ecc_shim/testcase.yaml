@@ -1,0 +1,9 @@
+tests:
+  flash_ecc_shim.stats:
+    tags: flash-ecc
+    platform_allow: native_sim
+  flash_ecc_shim.stats_2bit_correction:
+    tags: flash-ecc
+    platform_allow: native_sim
+    extra_configs:
+      - CONFIG_ECC_CRC32_2BIT_CORRECTION=y
