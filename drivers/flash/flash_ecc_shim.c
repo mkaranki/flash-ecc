@@ -73,6 +73,7 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 	const uint16_t data_size = cfg->data_size;
 	const uint16_t page_size = data_size + ECC_SHIM_CRC_SIZE;
 	const uint32_t phys_sector = (uint32_t)page_size * cfg->pages_per_sector;
+	const uint8_t erase_value = cfg->flash_params.erase_value;
 	uint8_t *page = data->page_buf;
 	uint8_t *dst = buf;
 	int ret;
@@ -94,18 +95,18 @@ static int ecc_shim_read(const struct device *dev, off_t virt_off,
 			return ret;
 		}
 
-		/* Erased page: all bytes 0xFF, return as-is without ECC check */
+		/* Erased page: all bytes erase_value, return as-is without ECC check */
 		bool erased = true;
 
 		for (size_t i = 0; i < page_size; i++) {
-			if (page[i] != 0xFF) {
+			if (page[i] != erase_value) {
 				erased = false;
 				break;
 			}
 		}
 
 		if (erased) {
-			memset(dst, 0xFF, data_size);
+			memset(dst, erase_value, data_size);
 		} else {
 			uint32_t stored_crc = sys_get_le32(&page[data_size]);
 			int ecc = ecc_crc32_correct(page, data_size, stored_crc);
